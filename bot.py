@@ -20,7 +20,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = base64.b64decode("c2stcHJvai1FS19hT1BWeUk5NkdVYmJXUUN1XzVqOHQteUFKbjhaQl9URi1QaF9tRTFlVUh2bnNBcVNRaGtOMzZQbmZxRGx6QWEzSXVvMXZnU1QzQmxia0ZKVVFYX2xhSEN6WHh6aUNxSTV4ZjVERllrWlBNNDQ5OEpTUnJsajllV1cyRm93QUJ6Tm9wbFItYXBZUGY3SlpEUVktRWltQlV2SUE=").decode()
 TAVILY_API_KEY = base64.b64decode("dHZseS1kZXYtM0hHV0JDLThZZW44RGpTZUdFNmE5WjI1S0d1Z0RPS2ZoYmZLTjhCNXFpZDhlRXZjWQ==").decode()
-GOOGLE_TOKEN = "gAWV9gMAAAAAAACMGWdvb2dsZS5vYXV0aDIuY3JlZGVudGlhbHOUjAtDcmVkZW50aWFsc5STlCmBlH2UKIwFdG9rZW6UjP15YTI5LmEwQWE3TVlpb1lDVVFPX2dkQUdycmJUcEhCNXgxRjZrNmstM21qWEo0akFhTWt5OVZGNklMRzFXY2NrTFJ3bHpPSkFrcC1UM2dIbWNZdmk3UmM5dEpiT0x6b29xVlpwaDk0WmhkMTdoMkJfeWlZaHRVdEZsTzcxR2t5QzdVTHBTNHBPSFh2QzY2RElxTG92RGtJUDNidHdZQ2hyZF80N1lCQVhDMGhEcnUzNml2UDlnT0I3dU43dnlEM0R3QkdHUjVpT2RpNFlBQWFDZ1lLQWJVU0FSTVNGUUhHWDJNaTFhbjZuYkJGTlE2dHFIZnBCbG1zQlEwMjA2lIwGZXhwaXJ5lIwIZGF0ZXRpbWWUjAhkYXRldGltZZSTlEMKB+oEBw4OMgAAAJSFlFKUjBFfcXVvdGFfcHJvamVjdF9pZJROjA9fdHJ1c3RfYm91bmRhcnmUTowQX3VuaXZlcnNlX2RvbWFpbpSMDmdvb2dsZWFwaXMuY29tlIwZX3VzZV9ub25fYmxvY2tpbmdfcmVmcmVzaJSJjAdfc2NvcGVzlF2UjChodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9hdXRoL2NhbGVuZGFylGGMD19kZWZhdWx0X3Njb3Blc5ROjA5fcmVmcmVzaF90b2tlbpSMZjEvLzAzeXFwVGhRSXFWLWJDZ1lJQVJBQUdBTVNOZ0YtTDlJcjRzelNWbHlLbkhaTUJzT1N0TVQ5elRuMWhISG5KLWVPbzRLRjNHcEdfYzJYcldrczZYS1lNa01qbWtaVDN1TVpHZ5SMCV9pZF90b2tlbpROjA9fZ3JhbnRlZF9zY29wZXOUXZSMKGh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL2F1dGgvY2FsZW5kYXKUYYwKX3Rva2VuX3VyaZSMI2h0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VulIwKX2NsaWVudF9pZJSMSDQ1Mzk1NjYxODI2Ny1uM2I2MjlyNGZ1ZXJjZDBuaHZ1ZzZzaGl1Y2w4OGtubS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbZSMDl9jbGllbnRfc2VjcmV0lIwjR09DU1BYLVJ5czhWWWxFdi1lVERpTVF4bDItM2NLdk93RGWUjAtfcmFwdF90b2tlbpROjBZfZW5hYmxlX3JlYXV0aF9yZWZyZXNolImMCF9hY2NvdW50lIwAlIwPX2NyZWRfZmlsZV9wYXRolE51Yi4="
+GOOGLE_TOKEN = "gAWVVgQAAAAAAACMGWdvb2dsZS5vYXV0aDIuY3JlZGVudGlhbHOUjAtDcmVkZW50aWFsc5STlCmBlH2UKIwFdG9rZW6UjP15YTI5LmEwQWE3TVlpb1hMT3p3cnVxSE40bUlhcWdoTnlEMVo2ZXRKT2RKbmw5NVN6d3lTNFdKQU00em5CbGtCaWFOUmgzaTFKT0kzUkxxWWowMmQ1UFlQX0syaW44UHlVR3NZTEVfWUk5MXZteTNQX0ZvbGFKRzVfWlpTcE9ENUxfWW9md2o4Q2lsTVowNWNydU1XR0kzTVpFZ3d2T0dTYnF0enFNSDFwbHNpbURDQ0xjY0kzUnVlUTgtQnV6OWJCVzRXZjJCYUNxWkJld2FDZ1lLQVVFU0FSTVNGUUhHWDJNaVJDNlh1Tmx2UHlSRE13NUxOdzFsX1EwMjA2lIwGZXhwaXJ5lIwIZGF0ZXRpbWWUjAhkYXRldGltZZSTlEMKB+oEBxYBHgAAAJSFlFKUjBFfcXVvdGFfcHJvamVjdF9pZJROjA9fdHJ1c3RfYm91bmRhcnmUTowQX3VuaXZlcnNlX2RvbWFpbpSMDmdvb2dsZWFwaXMuY29tlIwZX3VzZV9ub25fYmxvY2tpbmdfcmVmcmVzaJSJjAdfc2NvcGVzlF2UKIwoaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vYXV0aC9jYWxlbmRhcpSMLGh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL2F1dGgvZ21haWwubW9kaWZ5lGWMD19kZWZhdWx0X3Njb3Blc5ROjA5fcmVmcmVzaF90b2tlbpSMZjEvLzAzMTRJQy1yR3RwV0JDZ1lJQVJBQUdBTVNOZ0YtTDlJckRWaDZxc241dzBzOFlpLUZ3QWJLMVJYb3JOUDlTcWhVa2JONHpXX1ZDR1lvVmVHRHQ1aHdGaU5kZDNaT0k1UE93Z5SMCV9pZF90b2tlbpROjA9fZ3JhbnRlZF9zY29wZXOUXZQojChodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9hdXRoL2NhbGVuZGFylIwsaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vYXV0aC9nbWFpbC5tb2RpZnmUZYwKX3Rva2VuX3VyaZSMI2h0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VulIwKX2NsaWVudF9pZJSMSDQ1Mzk1NjYxODI2Ny1uM2I2MjlyNGZ1ZXJjZDBuaHZ1ZzZzaGl1Y2w4OGtubS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbZSMDl9jbGllbnRfc2VjcmV0lIwjR09DU1BYLVJ5czhWWWxFdi1lVERpTVF4bDItM2NLdk93RGWUjAtfcmFwdF90b2tlbpROjBZfZW5hYmxlX3JlYXV0aF9yZWZyZXNolImMCF9hY2NvdW50lIwAlIwPX2NyZWRfZmlsZV9wYXRolE51Yi4="
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -37,18 +37,16 @@ def get_calendar_service():
         print(f"Calendar error: {e}")
         return None
 
-TOKEN_PICKLE = os.path.join(os.path.dirname(__file__), "token.pickle")
-
 def get_gmail_service():
-    if not os.path.exists(TOKEN_PICKLE):
+    try:
+        token_bytes = base64.b64decode(GOOGLE_TOKEN.strip())
+        creds = pickle.loads(token_bytes)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        return build("gmail", "v1", credentials=creds)
+    except Exception as e:
+        print(f"Gmail error: {e}")
         return None
-    with open(TOKEN_PICKLE, "rb") as f:
-        creds = pickle.load(f)
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        with open(TOKEN_PICKLE, "wb") as f:
-            pickle.dump(creds, f)
-    return build("gmail", "v1", credentials=creds)
 
 def _parse_emails(service, messages, max_results=5):
     result = []
