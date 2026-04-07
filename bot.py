@@ -529,10 +529,10 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
             tools=TOOLS,
             messages=conversation_history[user_id],
         )
-        assistant_reply = next((b.text for b in final_response.content if b.type == "text"), "")
+        assistant_reply = next((b.text for b in final_response.content if b.type == "text"), "✅ Готово.")
         conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
     else:
-        assistant_reply = next((b.text for b in response.content if b.type == "text"), "")
+        assistant_reply = next((b.text for b in response.content if b.type == "text"), "✅ Готово.")
         conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
 
     return assistant_reply
