@@ -1,4 +1,5 @@
 import os
+import json
 import datetime
 import base64
 import pickle
@@ -103,8 +104,75 @@ TOOLS = [
             },
             "required": ["summary", "start_datetime", "end_datetime"],
         },
-    }
+    },
+    {
+        "name": "add_task",
+        "description": "Добавляет новую задачу в список дел пользователя.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Текст задачи"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "get_tasks",
+        "description": "Возвращает список задач пользователя.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "only_pending": {"type": "boolean", "description": "Если true — только невыполненные задачи. По умолчанию false."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "complete_task",
+        "description": "Отмечает задачу как выполненную по её ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer", "description": "ID задачи"},
+            },
+            "required": ["task_id"],
+        },
+    },
 ]
+
+TASKS_FILE = os.path.join(os.path.dirname(__file__), "tasks.json")
+
+def load_tasks() -> list:
+    if os.path.exists(TASKS_FILE):
+        with open(TASKS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_tasks(tasks: list):
+    with open(TASKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(tasks, f, ensure_ascii=False, indent=2)
+
+def add_task(text: str) -> dict:
+    tasks = load_tasks()
+    new_id = max((t["id"] for t in tasks), default=0) + 1
+    task = {"id": new_id, "text": text, "done": False, "created_at": datetime.datetime.now().isoformat()}
+    tasks.append(task)
+    save_tasks(tasks)
+    return task
+
+def get_tasks(only_pending: bool = False) -> list:
+    tasks = load_tasks()
+    return [t for t in tasks if not t["done"]] if only_pending else tasks
+
+def complete_task(task_id: int) -> dict | None:
+    tasks = load_tasks()
+    for task in tasks:
+        if task["id"] == task_id:
+            task["done"] = True
+            save_tasks(tasks)
+            return task
+    return None
+
 
 async def transcribe_voice(file) -> str:
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
@@ -119,9 +187,12 @@ async def transcribe_voice(file) -> str:
 
 conversation_history = {}
 
-SYSTEM_PROMPT = """Ты — личный помощник с доступом к Google Calendar пользователя.
+SYSTEM_PROMPT = """Ты — личный помощник с доступом к Google Calendar и списку задач пользователя.
 Когда тебе передают данные календаря в скобках [Данные календаря: ...], используй их для ответа.
-Когда пользователь просит создать, добавить или запланировать событие — используй инструмент create_calendar_event.
+Когда пользователь просит создать, добавить или запланировать событие в календарь — используй инструмент create_calendar_event.
+Когда пользователь просит добавить задачу, напомнить сделать что-то, создать напоминание — используй add_task.
+Когда пользователь просит показать задачи или список дел — используй get_tasks.
+Когда пользователь отмечает задачу выполненной или просит удалить/закрыть задачу — используй complete_task.
 Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
 
@@ -174,9 +245,11 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
     if response.stop_reason == "tool_use":
         tool_results = []
         for block in response.content:
-            if block.type == "tool_use" and block.name == "create_calendar_event":
-                args = block.input
-                try:
+            if block.type != "tool_use":
+                continue
+            args = block.input
+            try:
+                if block.name == "create_calendar_event":
                     event = create_calendar_event(
                         summary=args["summary"],
                         start_datetime=args["start_datetime"],
@@ -185,13 +258,28 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                         location=args.get("location"),
                     )
                     tool_result_content = f"Событие создано: {event.get('htmlLink', 'OK')}"
-                except Exception as e:
-                    tool_result_content = f"Ошибка создания события: {str(e)}"
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": tool_result_content,
-                })
+                elif block.name == "add_task":
+                    task = add_task(args["text"])
+                    tool_result_content = f"Задача добавлена с ID {task['id']}: {task['text']}"
+                elif block.name == "get_tasks":
+                    tasks = get_tasks(only_pending=args.get("only_pending", False))
+                    if not tasks:
+                        tool_result_content = "Задач нет."
+                    else:
+                        lines = [f"{'✅' if t['done'] else '☐'} [{t['id']}] {t['text']}" for t in tasks]
+                        tool_result_content = "\n".join(lines)
+                elif block.name == "complete_task":
+                    task = complete_task(args["task_id"])
+                    tool_result_content = f"Задача выполнена: {task['text']}" if task else f"Задача с ID {args['task_id']} не найдена."
+                else:
+                    tool_result_content = "Неизвестный инструмент."
+            except Exception as e:
+                tool_result_content = f"Ошибка: {str(e)}"
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": tool_result_content,
+            })
 
         conversation_history[user_id].append({"role": "assistant", "content": response.content})
         conversation_history[user_id].append({"role": "user", "content": tool_results})
