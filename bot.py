@@ -7,6 +7,7 @@ import tempfile
 from anthropic import Anthropic
 from openai import OpenAI
 from tavily import TavilyClient
+from email.mime.text import MIMEText
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from dotenv import load_dotenv
@@ -35,6 +36,60 @@ def get_calendar_service():
     except Exception as e:
         print(f"Calendar error: {e}")
         return None
+
+TOKEN_PICKLE = os.path.join(os.path.dirname(__file__), "token.pickle")
+
+def get_gmail_service():
+    if not os.path.exists(TOKEN_PICKLE):
+        return None
+    with open(TOKEN_PICKLE, "rb") as f:
+        creds = pickle.load(f)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        with open(TOKEN_PICKLE, "wb") as f:
+            pickle.dump(creds, f)
+    return build("gmail", "v1", credentials=creds)
+
+def _parse_emails(service, messages, max_results=5):
+    result = []
+    for msg in messages[:max_results]:
+        m = service.users().messages().get(
+            userId="me", id=msg["id"], format="metadata",
+            metadataHeaders=["From", "Subject", "Date"]
+        ).execute()
+        headers = {h["name"]: h["value"] for h in m["payload"]["headers"]}
+        result.append(
+            f"От: {headers.get('From', '')}\n"
+            f"Тема: {headers.get('Subject', '(без темы)')}\n"
+            f"Дата: {headers.get('Date', '')}\n"
+            f"{m.get('snippet', '')}"
+        )
+    return "\n\n---\n\n".join(result) if result else "Писем не найдено."
+
+def get_recent_emails(count=5):
+    service = get_gmail_service()
+    if not service:
+        return "Gmail не настроен. Запустите re_auth.py"
+    res = service.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=count).execute()
+    return _parse_emails(service, res.get("messages", []))
+
+def search_emails(query):
+    service = get_gmail_service()
+    if not service:
+        return "Gmail не настроен. Запустите re_auth.py"
+    res = service.users().messages().list(userId="me", q=query, maxResults=5).execute()
+    return _parse_emails(service, res.get("messages", []))
+
+def send_email(to, subject, body):
+    service = get_gmail_service()
+    if not service:
+        return None
+    message = MIMEText(body)
+    message["to"] = to
+    message["subject"] = subject
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
 
 def get_events_range(days=30):
     service = get_calendar_service()
@@ -139,6 +194,41 @@ TOOLS = [
                 "task_id": {"type": "integer", "description": "ID задачи"},
             },
             "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_recent_emails",
+        "description": "Возвращает последние письма из входящих Gmail.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "count": {"type": "integer", "description": "Количество писем (по умолчанию 5)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "search_emails",
+        "description": "Ищет письма в Gmail по запросу (поддерживает синтаксис Gmail: from:, subject:, after: и т.д.).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Поисковый запрос в формате Gmail"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "send_email",
+        "description": "Отправляет письмо через Gmail.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Email получателя"},
+                "subject": {"type": "string", "description": "Тема письма"},
+                "body": {"type": "string", "description": "Текст письма"},
+            },
+            "required": ["to", "subject", "body"],
         },
     },
     {
@@ -283,6 +373,9 @@ SYSTEM_PROMPT = """Ты — личный помощник с доступом к
 Когда пользователь отмечает задачу выполненной или просит удалить/закрыть задачу — используй complete_task.
 Когда пользователь просит напомнить что-либо в определённое время — используй set_reminder.
 Когда пользователь спрашивает о текущих событиях, новостях, ценах, погоде или любой информации, которая может измениться — используй search_web.
+Когда пользователь просит показать последние письма или входящие — используй get_recent_emails.
+Когда пользователь просит найти письмо (от кого-то, по теме, за период) — используй search_emails.
+Когда пользователь просит написать или отправить письмо — используй send_email.
 Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
 
@@ -361,6 +454,13 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                 elif block.name == "complete_task":
                     task = complete_task(args["task_id"])
                     tool_result_content = f"Задача выполнена: {task['text']}" if task else f"Задача с ID {args['task_id']} не найдена."
+                elif block.name == "get_recent_emails":
+                    tool_result_content = get_recent_emails(count=args.get("count", 5))
+                elif block.name == "search_emails":
+                    tool_result_content = search_emails(args["query"])
+                elif block.name == "send_email":
+                    send_email(args["to"], args["subject"], args["body"])
+                    tool_result_content = f"Письмо отправлено на {args['to']}."
                 elif block.name == "search_web":
                     tool_result_content = search_web(args["query"])
                 elif block.name == "set_reminder":
