@@ -78,6 +78,36 @@ def search_emails(query):
     res = service.users().messages().list(userId="me", q=query, maxResults=5).execute()
     return _parse_emails(service, res.get("messages", []))
 
+def _extract_body(payload) -> str:
+    """Recursively extract plain text body from Gmail message payload."""
+    mime_type = payload.get("mimeType", "")
+    if mime_type == "text/plain":
+        data = payload.get("body", {}).get("data", "")
+        if data:
+            return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+    if mime_type.startswith("multipart/"):
+        for part in payload.get("parts", []):
+            text = _extract_body(part)
+            if text:
+                return text
+    return ""
+
+def get_email_content(email_id: str) -> str:
+    service = get_gmail_service()
+    if not service:
+        return "Gmail не настроен."
+    m = service.users().messages().get(userId="me", id=email_id, format="full").execute()
+    headers = {h["name"]: h["value"] for h in m["payload"]["headers"]}
+    body = _extract_body(m["payload"]) or m.get("snippet", "(текст недоступен)")
+    return (
+        f"От: {headers.get('From', '')}\n"
+        f"Кому: {headers.get('To', '')}\n"
+        f"Тема: {headers.get('Subject', '(без темы)')}\n"
+        f"Дата: {headers.get('Date', '')}\n\n"
+        f"{body.strip()}"
+    )
+
+
 def send_email(to, subject, body):
     service = get_gmail_service()
     if not service:
@@ -214,6 +244,17 @@ TOOLS = [
                 "query": {"type": "string", "description": "Поисковый запрос в формате Gmail"},
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "get_email_content",
+        "description": "Возвращает полный текст письма по его ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email_id": {"type": "string", "description": "ID письма из Gmail"},
+            },
+            "required": ["email_id"],
         },
     },
     {
@@ -373,6 +414,7 @@ SYSTEM_PROMPT = """Ты — личный помощник с доступом к
 Когда пользователь спрашивает о текущих событиях, новостях, ценах, погоде или любой информации, которая может измениться — используй search_web.
 Когда пользователь просит показать последние письма или входящие — используй get_recent_emails.
 Когда пользователь просит найти письмо (от кого-то, по теме, за период) — используй search_emails.
+Когда пользователь просит открыть, прочитать или показать содержимое конкретного письма — используй get_email_content с его ID.
 Когда пользователь просит написать или отправить письмо — используй send_email.
 Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
@@ -456,6 +498,8 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                     tool_result_content = get_recent_emails(count=args.get("count", 5))
                 elif block.name == "search_emails":
                     tool_result_content = search_emails(args["query"])
+                elif block.name == "get_email_content":
+                    tool_result_content = get_email_content(args["email_id"])
                 elif block.name == "send_email":
                     send_email(args["to"], args["subject"], args["body"])
                     tool_result_content = f"Письмо отправлено на {args['to']}."
