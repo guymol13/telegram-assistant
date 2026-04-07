@@ -69,10 +69,45 @@ def get_events_week():
     events_result = service.events().list(calendarId="primary", timeMin=start, timeMax=end, singleEvents=True, orderBy="startTime").execute()
     return events_result.get("items", [])
 
+def create_calendar_event(summary, start_datetime, end_datetime, description=None, location=None):
+    service = get_calendar_service()
+    if not service:
+        return None
+    event = {
+        "summary": summary,
+        "start": {"dateTime": start_datetime, "timeZone": "Europe/Moscow"},
+        "end": {"dateTime": end_datetime, "timeZone": "Europe/Moscow"},
+    }
+    if description:
+        event["description"] = description
+    if location:
+        event["location"] = location
+    return service.events().insert(calendarId="primary", body=event).execute()
+
+TOOLS = [
+    {
+        "name": "create_calendar_event",
+        "description": "Создаёт новое событие в Google Calendar пользователя.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "description": "Название события"},
+                "start_datetime": {"type": "string", "description": "Дата и время начала в формате ISO 8601, например 2026-04-07T15:00:00"},
+                "end_datetime": {"type": "string", "description": "Дата и время окончания в формате ISO 8601, например 2026-04-07T16:00:00"},
+                "description": {"type": "string", "description": "Описание события (необязательно)"},
+                "location": {"type": "string", "description": "Место проведения (необязательно)"},
+            },
+            "required": ["summary", "start_datetime", "end_datetime"],
+        },
+    }
+]
+
 conversation_history = {}
 
 SYSTEM_PROMPT = """Ты — личный помощник с доступом к Google Calendar пользователя.
 Когда тебе передают данные календаря в скобках [Данные календаря: ...], используй их для ответа.
+Когда пользователь просит создать, добавить или запланировать событие — используй инструмент create_calendar_event.
+Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,7 +120,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_text = update.message.text.lower()
+    user_text = update.message.text
 
     if user_id not in conversation_history:
         conversation_history[user_id] = []
@@ -107,9 +142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     import datetime as dt
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).strftime("%d %B %Y")
-    message_content = user_text
-    if calendar_context:
-        message_content = f"{user_text}\n\n[Сегодня: {today}. Данные календаря: {calendar_context}]"
+    message_content = f"{user_text}\n\n[Сегодня: {today}. Данные календаря: {calendar_context}]"
 
     conversation_history[user_id].append({"role": "user", "content": message_content})
 
@@ -123,10 +156,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
             system=SYSTEM_PROMPT,
-            messages=conversation_history[user_id]
+            tools=TOOLS,
+            messages=conversation_history[user_id],
         )
-        assistant_reply = response.content[0].text
-        conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
+
+        # Handle tool use
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            assistant_reply_text = ""
+
+            for block in response.content:
+                if block.type == "text":
+                    assistant_reply_text = block.text
+                elif block.type == "tool_use" and block.name == "create_calendar_event":
+                    args = block.input
+                    try:
+                        event = create_calendar_event(
+                            summary=args["summary"],
+                            start_datetime=args["start_datetime"],
+                            end_datetime=args["end_datetime"],
+                            description=args.get("description"),
+                            location=args.get("location"),
+                        )
+                        tool_result_content = f"Событие создано: {event.get('htmlLink', 'OK')}"
+                    except Exception as e:
+                        tool_result_content = f"Ошибка создания события: {str(e)}"
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": tool_result_content,
+                    })
+
+            # Save assistant turn with tool use blocks, then get final reply
+            conversation_history[user_id].append({"role": "assistant", "content": response.content})
+            conversation_history[user_id].append({"role": "user", "content": tool_results})
+
+            final_response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=conversation_history[user_id],
+            )
+            assistant_reply = final_response.content[0].text
+            conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
+        else:
+            assistant_reply = response.content[0].text
+            conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
+
         await update.message.reply_text(assistant_reply)
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
