@@ -28,6 +28,16 @@ def get_calendar_service():
         print(f"Calendar error: {e}")
         return None
 
+def get_events_range(days=30):
+    service = get_calendar_service()
+    if not service:
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    start = now.isoformat()
+    end = (now + datetime.timedelta(days=days)).isoformat()
+    events_result = service.events().list(calendarId="primary", timeMin=start, timeMax=end, singleEvents=True, orderBy="startTime").execute()
+    return events_result.get("items", [])
+
 def get_events_today():
     service = get_calendar_service()
     if not service:
@@ -82,30 +92,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     calendar_context = ""
     try:
-        if any(word in user_text for word in ["сегодня", "today", "היום"]):
-            events = get_events_today()
-            if events is None:
-                calendar_context = "Ошибка подключения к календарю."
-            elif events:
-                calendar_context = "События сегодня: " + ", ".join([e["summary"] + " в " + e["start"].get("dateTime", e["start"].get("date", ""))[:16] for e in events])
-            else:
-                calendar_context = "Сегодня событий нет."
-        elif any(word in user_text for word in ["завтра", "tomorrow", "מחר"]):
-            events = get_events_tomorrow()
-            if events is None:
-                calendar_context = "Ошибка подключения к календарю."
-            elif events:
-                calendar_context = "События завтра: " + ", ".join([e["summary"] + " в " + e["start"].get("dateTime", e["start"].get("date", ""))[:16] for e in events])
-            else:
-                calendar_context = "Завтра событий нет."
-        elif any(word in user_text for word in ["неделя", "week", "שבוע"]):
-            events = get_events_week()
-            if events is None:
-                calendar_context = "Ошибка подключения к календарю."
-            elif events:
-                calendar_context = "События на неделю: " + ", ".join([e["summary"] + " " + e["start"].get("dateTime", e["start"].get("date", ""))[:16] for e in events])
-            else:
-                calendar_context = "На этой неделе событий нет."
+        events = get_events_range(30)
+        if events is None:
+            calendar_context = "Ошибка подключения к календарю."
+        elif events:
+            calendar_context = "Предстоящие события: " + "; ".join([
+                e["summary"] + " — " + e["start"].get("dateTime", e["start"].get("date", ""))[:16]
+                for e in events
+            ])
+        else:
+            calendar_context = "Ближайшие 30 дней событий нет."
     except Exception as e:
         calendar_context = f"Ошибка календаря: {str(e)}"
 
