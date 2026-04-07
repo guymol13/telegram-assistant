@@ -57,6 +57,7 @@ def _parse_emails(service, messages, max_results=5):
         ).execute()
         headers = {h["name"]: h["value"] for h in m["payload"]["headers"]}
         result.append(
+            f"ID: {msg['id']}\n"
             f"От: {headers.get('From', '')}\n"
             f"Тема: {headers.get('Subject', '(без темы)')}\n"
             f"Дата: {headers.get('Date', '')}\n"
