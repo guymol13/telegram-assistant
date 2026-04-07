@@ -1,4 +1,5 @@
 anthropic
+openai
 python-telegram-bot
 python-dotenv
 google-api-python-client

@@ -2,7 +2,9 @@ import os
 import datetime
 import base64
 import pickle
+import tempfile
 from anthropic import Anthropic
+from openai import OpenAI
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from dotenv import load_dotenv
@@ -13,9 +15,11 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_TOKEN = "gAWV9gMAAAAAAACMGWdvb2dsZS5vYXV0aDIuY3JlZGVudGlhbHOUjAtDcmVkZW50aWFsc5STlCmBlH2UKIwFdG9rZW6UjP15YTI5LmEwQWE3TVlpb1lDVVFPX2dkQUdycmJUcEhCNXgxRjZrNmstM21qWEo0akFhTWt5OVZGNklMRzFXY2NrTFJ3bHpPSkFrcC1UM2dIbWNZdmk3UmM5dEpiT0x6b29xVlpwaDk0WmhkMTdoMkJfeWlZaHRVdEZsTzcxR2t5QzdVTHBTNHBPSFh2QzY2RElxTG92RGtJUDNidHdZQ2hyZF80N1lCQVhDMGhEcnUzNml2UDlnT0I3dU43dnlEM0R3QkdHUjVpT2RpNFlBQWFDZ1lLQWJVU0FSTVNGUUhHWDJNaTFhbjZuYkJGTlE2dHFIZnBCbG1zQlEwMjA2lIwGZXhwaXJ5lIwIZGF0ZXRpbWWUjAhkYXRldGltZZSTlEMKB+oEBw4OMgAAAJSFlFKUjBFfcXVvdGFfcHJvamVjdF9pZJROjA9fdHJ1c3RfYm91bmRhcnmUTowQX3VuaXZlcnNlX2RvbWFpbpSMDmdvb2dsZWFwaXMuY29tlIwZX3VzZV9ub25fYmxvY2tpbmdfcmVmcmVzaJSJjAdfc2NvcGVzlF2UjChodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9hdXRoL2NhbGVuZGFylGGMD19kZWZhdWx0X3Njb3Blc5ROjA5fcmVmcmVzaF90b2tlbpSMZjEvLzAzeXFwVGhRSXFWLWJDZ1lJQVJBQUdBTVNOZ0YtTDlJcjRzelNWbHlLbkhaTUJzT1N0TVQ5elRuMWhISG5KLWVPbzRLRjNHcEdfYzJYcldrczZYS1lNa01qbWtaVDN1TVpHZ5SMCV9pZF90b2tlbpROjA9fZ3JhbnRlZF9zY29wZXOUXZSMKGh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL2F1dGgvY2FsZW5kYXKUYYwKX3Rva2VuX3VyaZSMI2h0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VulIwKX2NsaWVudF9pZJSMSDQ1Mzk1NjYxODI2Ny1uM2I2MjlyNGZ1ZXJjZDBuaHZ1ZzZzaGl1Y2w4OGtubS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbZSMDl9jbGllbnRfc2VjcmV0lIwjR09DU1BYLVJ5czhWWWxFdi1lVERpTVF4bDItM2NLdk93RGWUjAtfcmFwdF90b2tlbpROjBZfZW5hYmxlX3JlYXV0aF9yZWZyZXNolImMCF9hY2NvdW50lIwAlIwPX2NyZWRfZmlsZV9wYXRolE51Yi4="
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 def get_calendar_service():
     try:
@@ -102,6 +106,17 @@ TOOLS = [
     }
 ]
 
+async def transcribe_voice(file) -> str:
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        await file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as audio:
+            result = openai_client.audio.transcriptions.create(model="whisper-1", file=audio)
+        return result.text
+    finally:
+        os.remove(tmp_path)
+
 conversation_history = {}
 
 SYSTEM_PROMPT = """Ты — личный помощник с доступом к Google Calendar пользователя.
@@ -118,10 +133,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conversation_history[user_id] = []
     await update.message.reply_text("История очищена!")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_text = update.message.text
-
+async def process_text(user_id: int, user_text: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
@@ -151,61 +163,74 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    try:
-        response = client.messages.create(
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        system=SYSTEM_PROMPT,
+        tools=TOOLS,
+        messages=conversation_history[user_id],
+    )
+
+    if response.stop_reason == "tool_use":
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "create_calendar_event":
+                args = block.input
+                try:
+                    event = create_calendar_event(
+                        summary=args["summary"],
+                        start_datetime=args["start_datetime"],
+                        end_datetime=args["end_datetime"],
+                        description=args.get("description"),
+                        location=args.get("location"),
+                    )
+                    tool_result_content = f"Событие создано: {event.get('htmlLink', 'OK')}"
+                except Exception as e:
+                    tool_result_content = f"Ошибка создания события: {str(e)}"
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": tool_result_content,
+                })
+
+        conversation_history[user_id].append({"role": "assistant", "content": response.content})
+        conversation_history[user_id].append({"role": "user", "content": tool_results})
+
+        final_response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=conversation_history[user_id],
         )
+        assistant_reply = final_response.content[0].text
+        conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
+    else:
+        assistant_reply = response.content[0].text
+        conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
 
-        # Handle tool use
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            assistant_reply_text = ""
+    return assistant_reply
 
-            for block in response.content:
-                if block.type == "text":
-                    assistant_reply_text = block.text
-                elif block.type == "tool_use" and block.name == "create_calendar_event":
-                    args = block.input
-                    try:
-                        event = create_calendar_event(
-                            summary=args["summary"],
-                            start_datetime=args["start_datetime"],
-                            end_datetime=args["end_datetime"],
-                            description=args.get("description"),
-                            location=args.get("location"),
-                        )
-                        tool_result_content = f"Событие создано: {event.get('htmlLink', 'OK')}"
-                    except Exception as e:
-                        tool_result_content = f"Ошибка создания события: {str(e)}"
 
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": tool_result_content,
-                    })
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        reply = await process_text(update.effective_user.id, update.message.text, update, context)
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {str(e)}")
 
-            # Save assistant turn with tool use blocks, then get final reply
-            conversation_history[user_id].append({"role": "assistant", "content": response.content})
-            conversation_history[user_id].append({"role": "user", "content": tool_results})
 
-            final_response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1024,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
-                messages=conversation_history[user_id],
-            )
-            assistant_reply = final_response.content[0].text
-            conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
-        else:
-            assistant_reply = response.content[0].text
-            conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
-
-        await update.message.reply_text(assistant_reply)
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        voice_file = await update.message.voice.get_file()
+        user_text = await transcribe_voice(voice_file)
+        if not user_text.strip():
+            await update.message.reply_text("Не удалось распознать голосовое сообщение.")
+            return
+        await update.message.reply_text(f"_{user_text}_", parse_mode="Markdown")
+        reply = await process_text(update.effective_user.id, user_text, update, context)
+        await update.message.reply_text(reply)
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
 
@@ -214,6 +239,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     print("Бот запущен!")
     app.run_polling()
 
