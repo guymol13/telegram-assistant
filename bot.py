@@ -105,9 +105,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         calendar_context = f"Ошибка календаря: {str(e)}"
 
+    import datetime as dt
+    today = dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).strftime("%d %B %Y")
     message_content = user_text
     if calendar_context:
-        message_content = f"{user_text}\n\n[Данные календаря: {calendar_context}]"
+        message_content = f"{user_text}\n\n[Сегодня: {today}. Данные календаря: {calendar_context}]"
 
     conversation_history[user_id].append({"role": "user", "content": message_content})
 
