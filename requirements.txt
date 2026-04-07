@@ -1,6 +1,6 @@
 anthropic
 openai
-python-telegram-bot
+python-telegram-bot[job-queue]
 python-dotenv
 google-api-python-client
 google-auth-httplib2

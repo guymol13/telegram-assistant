@@ -138,9 +138,23 @@ TOOLS = [
             "required": ["task_id"],
         },
     },
+    {
+        "name": "set_reminder",
+        "description": "Устанавливает напоминание, которое бот отправит пользователю в указанное время.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Текст напоминания"},
+                "remind_at": {"type": "string", "description": "Дата и время напоминания в формате ISO 8601, например 2026-04-08T10:00:00"},
+            },
+            "required": ["text", "remind_at"],
+        },
+    },
 ]
 
 TASKS_FILE = os.path.join(os.path.dirname(__file__), "tasks.json")
+REMINDERS_FILE = os.path.join(os.path.dirname(__file__), "reminders.json")
+MSK = datetime.timezone(datetime.timedelta(hours=3))
 
 def load_tasks() -> list:
     if os.path.exists(TASKS_FILE):
@@ -174,6 +188,55 @@ def complete_task(task_id: int) -> dict | None:
     return None
 
 
+def load_reminders() -> list:
+    if os.path.exists(REMINDERS_FILE):
+        with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_reminders(reminders: list):
+    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(reminders, f, ensure_ascii=False, indent=2)
+
+def add_reminder(user_id: int, text: str, remind_at: str) -> dict:
+    reminders = load_reminders()
+    new_id = max((r["id"] for r in reminders), default=0) + 1
+    reminder = {
+        "id": new_id,
+        "user_id": user_id,
+        "text": text,
+        "remind_at": remind_at,
+        "sent": False,
+        "created_at": datetime.datetime.now(MSK).isoformat(),
+    }
+    reminders.append(reminder)
+    save_reminders(reminders)
+    return reminder
+
+async def check_reminders(context):
+    now = datetime.datetime.now(MSK)
+    reminders = load_reminders()
+    changed = False
+    for reminder in reminders:
+        if reminder["sent"]:
+            continue
+        remind_at = datetime.datetime.fromisoformat(reminder["remind_at"])
+        if remind_at.tzinfo is None:
+            remind_at = remind_at.replace(tzinfo=MSK)
+        if now >= remind_at:
+            try:
+                await context.bot.send_message(
+                    chat_id=reminder["user_id"],
+                    text=f"⏰ Напоминание: {reminder['text']}",
+                )
+                reminder["sent"] = True
+                changed = True
+            except Exception as e:
+                print(f"Reminder send error: {e}")
+    if changed:
+        save_reminders(reminders)
+
+
 async def transcribe_voice(file) -> str:
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         await file.download_to_drive(tmp.name)
@@ -193,6 +256,7 @@ SYSTEM_PROMPT = """Ты — личный помощник с доступом к
 Когда пользователь просит добавить задачу, напомнить сделать что-то, создать напоминание — используй add_task.
 Когда пользователь просит показать задачи или список дел — используй get_tasks.
 Когда пользователь отмечает задачу выполненной или просит удалить/закрыть задачу — используй complete_task.
+Когда пользователь просит напомнить что-либо в определённое время — используй set_reminder.
 Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
 
@@ -271,6 +335,9 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                 elif block.name == "complete_task":
                     task = complete_task(args["task_id"])
                     tool_result_content = f"Задача выполнена: {task['text']}" if task else f"Задача с ID {args['task_id']} не найдена."
+                elif block.name == "set_reminder":
+                    reminder = add_reminder(user_id, args["text"], args["remind_at"])
+                    tool_result_content = f"Напоминание установлено на {args['remind_at']}: {args['text']}"
                 else:
                     tool_result_content = "Неизвестный инструмент."
             except Exception as e:
@@ -328,6 +395,7 @@ def main():
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.job_queue.run_repeating(check_reminders, interval=60, first=10)
     print("Бот запущен!")
     app.run_polling()
 
