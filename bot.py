@@ -6,6 +6,7 @@ import pickle
 import tempfile
 from anthropic import Anthropic
 from openai import OpenAI
+from tavily import TavilyClient
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from dotenv import load_dotenv
@@ -17,10 +18,12 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = base64.b64decode("c2stcHJvai1FS19hT1BWeUk5NkdVYmJXUUN1XzVqOHQteUFKbjhaQl9URi1QaF9tRTFlVUh2bnNBcVNRaGtOMzZQbmZxRGx6QWEzSXVvMXZnU1QzQmxia0ZKVVFYX2xhSEN6WHh6aUNxSTV4ZjVERllrWlBNNDQ5OEpTUnJsajllV1cyRm93QUJ6Tm9wbFItYXBZUGY3SlpEUVktRWltQlV2SUE=").decode()
+TAVILY_API_KEY = base64.b64decode("dHZseS1kZXYtM0hHV0JDLThZZW44RGpTZUdFNmE5WjI1S0d1Z0RPS2ZoYmZLTjhCNXFpZDhlRXZjWQ==").decode()
 GOOGLE_TOKEN = "gAWV9gMAAAAAAACMGWdvb2dsZS5vYXV0aDIuY3JlZGVudGlhbHOUjAtDcmVkZW50aWFsc5STlCmBlH2UKIwFdG9rZW6UjP15YTI5LmEwQWE3TVlpb1lDVVFPX2dkQUdycmJUcEhCNXgxRjZrNmstM21qWEo0akFhTWt5OVZGNklMRzFXY2NrTFJ3bHpPSkFrcC1UM2dIbWNZdmk3UmM5dEpiT0x6b29xVlpwaDk0WmhkMTdoMkJfeWlZaHRVdEZsTzcxR2t5QzdVTHBTNHBPSFh2QzY2RElxTG92RGtJUDNidHdZQ2hyZF80N1lCQVhDMGhEcnUzNml2UDlnT0I3dU43dnlEM0R3QkdHUjVpT2RpNFlBQWFDZ1lLQWJVU0FSTVNGUUhHWDJNaTFhbjZuYkJGTlE2dHFIZnBCbG1zQlEwMjA2lIwGZXhwaXJ5lIwIZGF0ZXRpbWWUjAhkYXRldGltZZSTlEMKB+oEBw4OMgAAAJSFlFKUjBFfcXVvdGFfcHJvamVjdF9pZJROjA9fdHJ1c3RfYm91bmRhcnmUTowQX3VuaXZlcnNlX2RvbWFpbpSMDmdvb2dsZWFwaXMuY29tlIwZX3VzZV9ub25fYmxvY2tpbmdfcmVmcmVzaJSJjAdfc2NvcGVzlF2UjChodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9hdXRoL2NhbGVuZGFylGGMD19kZWZhdWx0X3Njb3Blc5ROjA5fcmVmcmVzaF90b2tlbpSMZjEvLzAzeXFwVGhRSXFWLWJDZ1lJQVJBQUdBTVNOZ0YtTDlJcjRzelNWbHlLbkhaTUJzT1N0TVQ5elRuMWhISG5KLWVPbzRLRjNHcEdfYzJYcldrczZYS1lNa01qbWtaVDN1TVpHZ5SMCV9pZF90b2tlbpROjA9fZ3JhbnRlZF9zY29wZXOUXZSMKGh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL2F1dGgvY2FsZW5kYXKUYYwKX3Rva2VuX3VyaZSMI2h0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VulIwKX2NsaWVudF9pZJSMSDQ1Mzk1NjYxODI2Ny1uM2I2MjlyNGZ1ZXJjZDBuaHZ1ZzZzaGl1Y2w4OGtubS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbZSMDl9jbGllbnRfc2VjcmV0lIwjR09DU1BYLVJ5czhWWWxFdi1lVERpTVF4bDItM2NLdk93RGWUjAtfcmFwdF90b2tlbpROjBZfZW5hYmxlX3JlYXV0aF9yZWZyZXNolImMCF9hY2NvdW50lIwAlIwPX2NyZWRfZmlsZV9wYXRolE51Yi4="
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 def get_calendar_service():
     try:
@@ -139,6 +142,17 @@ TOOLS = [
         },
     },
     {
+        "name": "search_web",
+        "description": "Ищет актуальную информацию в интернете через Tavily.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Поисковый запрос"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "set_reminder",
         "description": "Устанавливает напоминание, которое бот отправит пользователю в указанное время.",
         "input_schema": {
@@ -186,6 +200,17 @@ def complete_task(task_id: int) -> dict | None:
             save_tasks(tasks)
             return task
     return None
+
+
+def search_web(query: str) -> str:
+    results = tavily_client.search(query=query, max_results=5)
+    items = results.get("results", [])
+    if not items:
+        return "Ничего не найдено."
+    return "\n\n".join(
+        f"{r['title']}\n{r['url']}\n{r.get('content', '')[:300]}"
+        for r in items
+    )
 
 
 def load_reminders() -> list:
@@ -257,6 +282,7 @@ SYSTEM_PROMPT = """Ты — личный помощник с доступом к
 Когда пользователь просит показать задачи или список дел — используй get_tasks.
 Когда пользователь отмечает задачу выполненной или просит удалить/закрыть задачу — используй complete_task.
 Когда пользователь просит напомнить что-либо в определённое время — используй set_reminder.
+Когда пользователь спрашивает о текущих событиях, новостях, ценах, погоде или любой информации, которая может измениться — используй search_web.
 Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
 
@@ -335,6 +361,8 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                 elif block.name == "complete_task":
                     task = complete_task(args["task_id"])
                     tool_result_content = f"Задача выполнена: {task['text']}" if task else f"Задача с ID {args['task_id']} не найдена."
+                elif block.name == "search_web":
+                    tool_result_content = search_web(args["query"])
                 elif block.name == "set_reminder":
                     reminder = add_reminder(user_id, args["text"], args["remind_at"])
                     tool_result_content = f"Напоминание установлено на {args['remind_at']}: {args['text']}"
