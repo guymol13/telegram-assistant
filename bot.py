@@ -4,6 +4,7 @@ import datetime
 import base64
 import pickle
 import tempfile
+import asyncio
 from anthropic import Anthropic
 from openai import OpenAI
 from tavily import TavilyClient
@@ -294,6 +295,23 @@ TOOLS = [
             "required": ["text", "remind_at"],
         },
     },
+    {
+        "name": "browse_web",
+        "description": (
+            "Открывает сайт в браузере и выполняет действия на странице: заполняет формы, "
+            "кликает кнопки, извлекает информацию. Используй когда нужно взаимодействовать "
+            "с веб-страницей, войти на сайт, заполнить форму или получить данные, "
+            "недоступные через обычный поиск."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL страницы для открытия"},
+                "instructions": {"type": "string", "description": "Что нужно сделать на странице (на русском или английском)"},
+            },
+            "required": ["url", "instructions"],
+        },
+    },
 ]
 
 TASKS_FILE = os.path.join(os.path.dirname(__file__), "tasks.json")
@@ -341,6 +359,115 @@ def search_web(query: str) -> str:
         f"{r['title']}\n{r['url']}\n{r.get('content', '')[:300]}"
         for r in items
     )
+
+
+async def browse_web(url: str, instructions: str) -> str:
+    """Open a URL in a browser and follow instructions using a vision-based agent loop."""
+    from playwright.async_api import async_playwright
+
+    MAX_STEPS = 10
+    log = []
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 1280, "height": 800})
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(1500)
+
+            for step in range(MAX_STEPS):
+                # Take screenshot and encode as base64
+                screenshot_bytes = await page.screenshot(type="png", full_page=False)
+                screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+                current_url = page.url
+
+                vision_response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=512,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": screenshot_b64,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"Current URL: {current_url}\n"
+                                    f"Task: {instructions}\n"
+                                    f"Steps done so far: {'; '.join(log) if log else 'none'}\n\n"
+                                    "Look at the screenshot and decide the next single action. "
+                                    "Reply with EXACTLY one of these formats:\n"
+                                    "CLICK: <css_selector>\n"
+                                    "FILL: <css_selector> | <text_to_type>\n"
+                                    "NAVIGATE: <url>\n"
+                                    "SCROLL: down  (or up)\n"
+                                    "DONE: <summary of result or extracted information>\n\n"
+                                    "Use simple CSS selectors like input[name='q'], button[type='submit'], "
+                                    "a[href*='login'], #id, .classname. "
+                                    "If the task is complete or you have the answer, use DONE."
+                                ),
+                            },
+                        ],
+                    }],
+                )
+
+                raw = vision_response.content[0].text.strip()
+                first_line = raw.split("\n")[0].strip()
+
+                if first_line.upper().startswith("DONE:"):
+                    result = first_line[5:].strip() or raw[5:].strip()
+                    log.append(f"done: {result}")
+                    return result
+
+                elif first_line.upper().startswith("CLICK:"):
+                    selector = first_line[6:].strip()
+                    try:
+                        await page.locator(selector).first.click(timeout=5000)
+                        await page.wait_for_timeout(1000)
+                        log.append(f"clicked {selector}")
+                    except Exception as e:
+                        log.append(f"click failed ({selector}): {e}")
+
+                elif first_line.upper().startswith("FILL:"):
+                    parts = first_line[5:].split("|", 1)
+                    selector = parts[0].strip()
+                    text = parts[1].strip() if len(parts) > 1 else ""
+                    try:
+                        await page.locator(selector).first.fill(text, timeout=5000)
+                        await page.wait_for_timeout(500)
+                        log.append(f"filled {selector} with '{text}'")
+                    except Exception as e:
+                        log.append(f"fill failed ({selector}): {e}")
+
+                elif first_line.upper().startswith("NAVIGATE:"):
+                    nav_url = first_line[9:].strip()
+                    try:
+                        await page.goto(nav_url, wait_until="domcontentloaded", timeout=30000)
+                        await page.wait_for_timeout(1500)
+                        log.append(f"navigated to {nav_url}")
+                    except Exception as e:
+                        log.append(f"navigate failed: {e}")
+
+                elif first_line.upper().startswith("SCROLL:"):
+                    direction = first_line[7:].strip().lower()
+                    delta = 600 if direction == "down" else -600
+                    await page.evaluate(f"window.scrollBy(0, {delta})")
+                    await page.wait_for_timeout(500)
+                    log.append(f"scrolled {direction}")
+
+                else:
+                    log.append(f"unknown action: {first_line}")
+
+            return "Достигнут лимит шагов. Выполненные действия: " + "; ".join(log)
+
+        finally:
+            await browser.close()
 
 
 def load_reminders() -> list:
@@ -417,6 +544,7 @@ SYSTEM_PROMPT = """Ты — личный помощник с доступом к
 Когда пользователь просит найти письмо (от кого-то, по теме, за период) — используй search_emails.
 Когда пользователь просит открыть, прочитать или показать содержимое конкретного письма — используй get_email_content с его ID.
 Когда пользователь просит написать или отправить письмо — используй send_email.
+Когда пользователь просит открыть сайт, заполнить форму, войти на страницу, кликнуть что-то на сайте, или получить информацию с конкретной веб-страницы — используй browse_web с URL и инструкциями что сделать.
 Часовой пояс пользователя: Europe/Moscow (UTC+3). Если пользователь не указал год, используй текущий.
 Отвечай кратко и по делу. Общаешься на том языке на котором пишет пользователь."""
 
@@ -509,6 +637,9 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                 elif block.name == "set_reminder":
                     reminder = add_reminder(user_id, args["text"], args["remind_at"])
                     tool_result_content = f"Напоминание установлено на {args['remind_at']}: {args['text']}"
+                elif block.name == "browse_web":
+                    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+                    tool_result_content = await browse_web(args["url"], args["instructions"])
                 else:
                     tool_result_content = "Неизвестный инструмент."
             except Exception as e:
