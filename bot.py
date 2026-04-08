@@ -596,6 +596,7 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
 
     if response.stop_reason == "tool_use":
         tool_results = []
+        browse_result = None
         for block in response.content:
             if block.type != "tool_use":
                 continue
@@ -640,6 +641,7 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                 elif block.name == "browse_web":
                     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
                     tool_result_content = await browse_web(args["url"], args["instructions"])
+                    browse_result = tool_result_content
                 else:
                     tool_result_content = "Неизвестный инструмент."
             except Exception as e:
@@ -653,14 +655,19 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
         conversation_history[user_id].append({"role": "assistant", "content": response.content})
         conversation_history[user_id].append({"role": "user", "content": tool_results})
 
-        final_response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=conversation_history[user_id],
-        )
-        assistant_reply = next((b.text for b in final_response.content if b.type == "text"), "✅ Готово.")
+        # browse_web returns the final answer directly — skip the extra LLM roundtrip
+        # so the raw text result (not a screenshot description) reaches the user.
+        if browse_result is not None and len(tool_results) == 1:
+            assistant_reply = browse_result
+        else:
+            final_response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=conversation_history[user_id],
+            )
+            assistant_reply = next((b.text for b in final_response.content if b.type == "text"), "✅ Готово.")
         conversation_history[user_id].append({"role": "assistant", "content": assistant_reply})
     else:
         assistant_reply = next((b.text for b in response.content if b.type == "text"), "✅ Готово.")
