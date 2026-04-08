@@ -5,6 +5,7 @@ import base64
 import pickle
 import tempfile
 import asyncio
+from zoneinfo import ZoneInfo
 from anthropic import Anthropic
 from openai import OpenAI
 from tavily import TavilyClient
@@ -19,6 +20,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID")
 OPENAI_API_KEY = base64.b64decode("c2stcHJvai1FS19hT1BWeUk5NkdVYmJXUUN1XzVqOHQteUFKbjhaQl9URi1QaF9tRTFlVUh2bnNBcVNRaGtOMzZQbmZxRGx6QWEzSXVvMXZnU1QzQmxia0ZKVVFYX2xhSEN6WHh6aUNxSTV4ZjVERllrWlBNNDQ5OEpTUnJsajllV1cyRm93QUJ6Tm9wbFItYXBZUGY3SlpEUVktRWltQlV2SUE=").decode()
 TAVILY_API_KEY = base64.b64decode("dHZseS1kZXYtM0hHV0JDLThZZW44RGpTZUdFNmE5WjI1S0d1Z0RPS2ZoYmZLTjhCNXFpZDhlRXZjWQ==").decode()
 GOOGLE_TOKEN = "gAWVVgQAAAAAAACMGWdvb2dsZS5vYXV0aDIuY3JlZGVudGlhbHOUjAtDcmVkZW50aWFsc5STlCmBlH2UKIwFdG9rZW6UjP15YTI5LmEwQWE3TVlpb1hMT3p3cnVxSE40bUlhcWdoTnlEMVo2ZXRKT2RKbmw5NVN6d3lTNFdKQU00em5CbGtCaWFOUmgzaTFKT0kzUkxxWWowMmQ1UFlQX0syaW44UHlVR3NZTEVfWUk5MXZteTNQX0ZvbGFKRzVfWlpTcE9ENUxfWW9md2o4Q2lsTVowNWNydU1XR0kzTVpFZ3d2T0dTYnF0enFNSDFwbHNpbURDQ0xjY0kzUnVlUTgtQnV6OWJCVzRXZjJCYUNxWkJld2FDZ1lLQVVFU0FSTVNGUUhHWDJNaVJDNlh1Tmx2UHlSRE13NUxOdzFsX1EwMjA2lIwGZXhwaXJ5lIwIZGF0ZXRpbWWUjAhkYXRldGltZZSTlEMKB+oEBxYBHgAAAJSFlFKUjBFfcXVvdGFfcHJvamVjdF9pZJROjA9fdHJ1c3RfYm91bmRhcnmUTowQX3VuaXZlcnNlX2RvbWFpbpSMDmdvb2dsZWFwaXMuY29tlIwZX3VzZV9ub25fYmxvY2tpbmdfcmVmcmVzaJSJjAdfc2NvcGVzlF2UKIwoaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vYXV0aC9jYWxlbmRhcpSMLGh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL2F1dGgvZ21haWwubW9kaWZ5lGWMD19kZWZhdWx0X3Njb3Blc5ROjA5fcmVmcmVzaF90b2tlbpSMZjEvLzAzMTRJQy1yR3RwV0JDZ1lJQVJBQUdBTVNOZ0YtTDlJckRWaDZxc241dzBzOFlpLUZ3QWJLMVJYb3JOUDlTcWhVa2JONHpXX1ZDR1lvVmVHRHQ1aHdGaU5kZDNaT0k1UE93Z5SMCV9pZF90b2tlbpROjA9fZ3JhbnRlZF9zY29wZXOUXZQojChodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9hdXRoL2NhbGVuZGFylIwsaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vYXV0aC9nbWFpbC5tb2RpZnmUZYwKX3Rva2VuX3VyaZSMI2h0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VulIwKX2NsaWVudF9pZJSMSDQ1Mzk1NjYxODI2Ny1uM2I2MjlyNGZ1ZXJjZDBuaHZ1ZzZzaGl1Y2w4OGtubS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbZSMDl9jbGllbnRfc2VjcmV0lIwjR09DU1BYLVJ5czhWWWxFdi1lVERpTVF4bDItM2NLdk93RGWUjAtfcmFwdF90b2tlbpROjBZfZW5hYmxlX3JlYXV0aF9yZWZyZXNolImMCF9hY2NvdW50lIwAlIwPX2NyZWRfZmlsZV9wYXRolE51Yi4="
@@ -317,6 +319,7 @@ TOOLS = [
 TASKS_FILE = os.path.join(os.path.dirname(__file__), "tasks.json")
 REMINDERS_FILE = os.path.join(os.path.dirname(__file__), "reminders.json")
 MSK = datetime.timezone(datetime.timedelta(hours=3))
+IL_TZ = ZoneInfo("Asia/Jerusalem")
 
 def load_tasks() -> list:
     if os.path.exists(TASKS_FILE):
@@ -556,6 +559,81 @@ async def transcribe_voice(file) -> str:
 
 conversation_history = {}
 
+async def send_news_digest(context):
+    """6:30 по израильскому времени: дайджест новостей Израиля и мира."""
+    chat_id = OWNER_CHAT_ID
+    if not chat_id:
+        print("OWNER_CHAT_ID не задан, дайджест новостей пропущен.")
+        return
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        israel_news = search_web("latest news Israel today הידיעות האחרונות בישראל")
+        world_news = search_web("world news today top stories breaking")
+        today = datetime.datetime.now(IL_TZ).strftime("%d.%m.%Y")
+        prompt = (
+            f"Сегодня {today}. Составь краткий утренний дайджест новостей на русском языке.\n\n"
+            f"НОВОСТИ ИЗРАИЛЯ:\n{israel_news}\n\n"
+            f"МИРОВЫЕ НОВОСТИ:\n{world_news}\n\n"
+            "Формат ответа: сначала раздел '🇮🇱 Израиль', затем '🌍 Мир'. "
+            "По 3-5 ключевых новости в каждом разделе. Кратко и по делу."
+        )
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        digest = next((b.text for b in response.content if b.type == "text"), "Не удалось составить дайджест.")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"☀️ *Утренний дайджест {today}*\n\n{digest}",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        print(f"News digest error: {e}")
+
+
+async def send_calendar_digest(context):
+    """8:00 по израильскому времени: события дня + задачи + напоминания."""
+    chat_id = OWNER_CHAT_ID
+    if not chat_id:
+        print("OWNER_CHAT_ID не задан, дайджест календаря пропущен.")
+        return
+    try:
+        today = datetime.datetime.now(IL_TZ).strftime("%d.%m.%Y")
+        lines = [f"📅 *План на {today}*\n"]
+
+        events = get_events_today()
+        if events:
+            lines.append("*Встречи и события:*")
+            for e in events:
+                start = e["start"].get("dateTime", e["start"].get("date", ""))[:16].replace("T", " ")
+                lines.append(f"• {start} — {e.get('summary', '(без названия)')}")
+        else:
+            lines.append("*Событий сегодня нет*")
+
+        tasks = get_tasks(only_pending=True)
+        if tasks:
+            lines.append("\n*Активные задачи:*")
+            for t in tasks[:10]:
+                lines.append(f"☐ [{t['id']}] {t['text']}")
+
+        reminders = load_reminders()
+        pending_reminders = [r for r in reminders if not r["sent"]]
+        if pending_reminders:
+            lines.append("\n*Предстоящие напоминания:*")
+            for r in pending_reminders[:5]:
+                remind_at = r["remind_at"][:16].replace("T", " ")
+                lines.append(f"⏰ {remind_at} — {r['text']}")
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="\n".join(lines),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        print(f"Calendar digest error: {e}")
+
+
 SYSTEM_PROMPT = """Ты — личный помощник с доступом к Google Calendar и списку задач пользователя.
 Когда тебе передают данные календаря в скобках [Данные календаря: ...], используй их для ответа.
 Когда пользователь просит создать, добавить или запланировать событие в календарь — используй инструмент create_calendar_event.
@@ -574,6 +652,13 @@ SYSTEM_PROMPT = """Ты — личный помощник с доступом к
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Я твой личный ассистент с доступом к календарю!")
+
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"Твой Telegram ID: `{update.effective_user.id}`\n"
+        f"Добавь его в .env как OWNER\\_CHAT\\_ID={update.effective_user.id}",
+        parse_mode="Markdown",
+    )
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -726,9 +811,20 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(CommandHandler("myid", myid))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.job_queue.run_repeating(check_reminders, interval=60, first=10)
+    # Утренний дайджест новостей — 6:30 по израильскому времени
+    app.job_queue.run_daily(
+        send_news_digest,
+        time=datetime.time(6, 30, tzinfo=IL_TZ),
+    )
+    # Дайджест календаря и задач — 8:00 по израильскому времени
+    app.job_queue.run_daily(
+        send_calendar_digest,
+        time=datetime.time(8, 0, tzinfo=IL_TZ),
+    )
     print("Бот запущен!")
     app.run_polling()
 
