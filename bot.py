@@ -164,6 +164,29 @@ def get_events_week():
     events_result = service.events().list(calendarId="primary", timeMin=start, timeMax=end, singleEvents=True, orderBy="startTime").execute()
     return events_result.get("items", [])
 
+def find_calendar_events(time_min, time_max, query=None):
+    service = get_calendar_service()
+    if not service:
+        return None
+    params = dict(
+        calendarId="primary",
+        timeMin=time_min,
+        timeMax=time_max,
+        singleEvents=True,
+        orderBy="startTime",
+        maxResults=10,
+    )
+    if query:
+        params["q"] = query
+    return service.events().list(**params).execute().get("items", [])
+
+def delete_calendar_event(event_id):
+    service = get_calendar_service()
+    if not service:
+        return False
+    service.events().delete(calendarId="primary", eventId=event_id).execute()
+    return True
+
 def create_calendar_event(summary, start_datetime, end_datetime, description=None, location=None):
     service = get_calendar_service()
     if not service:
@@ -180,6 +203,35 @@ def create_calendar_event(summary, start_datetime, end_datetime, description=Non
     return service.events().insert(calendarId="primary", body=event).execute()
 
 TOOLS = [
+    {
+        "name": "find_calendar_events",
+        "description": (
+            "Ищет события в Google Calendar в заданном диапазоне времени. "
+            "Используй перед удалением события, чтобы найти его ID. "
+            "Возвращает список событий с их ID, названием и временем."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "time_min": {"type": "string", "description": "Начало диапазона поиска в формате ISO 8601, например 2026-04-10T00:00:00+03:00"},
+                "time_max": {"type": "string", "description": "Конец диапазона поиска в формате ISO 8601, например 2026-04-10T23:59:59+03:00"},
+                "query": {"type": "string", "description": "Ключевые слова для фильтрации по названию (необязательно)"},
+            },
+            "required": ["time_min", "time_max"],
+        },
+    },
+    {
+        "name": "delete_calendar_event",
+        "description": "Удаляет событие из Google Calendar по его ID. Сначала используй find_calendar_events чтобы найти нужное событие и его ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string", "description": "ID события в Google Calendar"},
+                "event_summary": {"type": "string", "description": "Название события (для подтверждения в ответе пользователю)"},
+            },
+            "required": ["event_id", "event_summary"],
+        },
+    },
     {
         "name": "create_calendar_event",
         "description": "Создаёт новое событие в Google Calendar пользователя.",
@@ -637,6 +689,7 @@ async def send_calendar_digest(context, chat_id=None):
 SYSTEM_PROMPT = """Ты — личный помощник с доступом к Google Calendar и списку задач пользователя.
 Когда тебе передают данные календаря в скобках [Данные календаря: ...], используй их для ответа.
 Когда пользователь просит создать, добавить или запланировать событие в календарь — используй инструмент create_calendar_event.
+Когда пользователь просит удалить, отменить или убрать событие из календаря — сначала используй find_calendar_events чтобы найти событие по времени и/или названию, затем delete_calendar_event с найденным ID. Если найдено несколько похожих событий — уточни у пользователя какое именно удалить.
 Когда пользователь просит добавить задачу, напомнить сделать что-то, создать напоминание — используй add_task.
 Когда пользователь просит показать задачи или список дел — используй get_tasks.
 Когда пользователь отмечает задачу выполненной или просит удалить/закрыть задачу — используй complete_task.
@@ -719,7 +772,27 @@ async def process_text(user_id: int, user_text: str, update: Update, context: Co
                 continue
             args = block.input
             try:
-                if block.name == "create_calendar_event":
+                if block.name == "find_calendar_events":
+                    events = find_calendar_events(
+                        time_min=args["time_min"],
+                        time_max=args["time_max"],
+                        query=args.get("query"),
+                    )
+                    if not events:
+                        tool_result_content = "Событий в указанном диапазоне не найдено."
+                    else:
+                        lines = []
+                        for e in events:
+                            start = e["start"].get("dateTime", e["start"].get("date", ""))[:16].replace("T", " ")
+                            lines.append(f"ID: {e['id']}\n{e.get('summary', '(без названия)')} — {start}")
+                        tool_result_content = "\n\n".join(lines)
+                elif block.name == "delete_calendar_event":
+                    ok = delete_calendar_event(args["event_id"])
+                    tool_result_content = (
+                        f"Событие «{args['event_summary']}» удалено."
+                        if ok else "Не удалось удалить событие."
+                    )
+                elif block.name == "create_calendar_event":
                     event = create_calendar_event(
                         summary=args["summary"],
                         start_datetime=args["start_datetime"],
