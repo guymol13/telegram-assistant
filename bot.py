@@ -365,14 +365,17 @@ async def browse_web(url: str, instructions: str) -> str:
     """Open a URL in a browser and follow instructions using a vision-based agent loop."""
     from playwright.async_api import async_playwright
 
-    MAX_STEPS = 10
+    MAX_STEPS = 20
     log = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page(viewport={"width": 1280, "height": 800})
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            except Exception as e:
+                return f"Не удалось открыть страницу {url}: {e}"
             await page.wait_for_timeout(1500)
 
             for step in range(MAX_STEPS):
@@ -432,7 +435,14 @@ async def browse_web(url: str, instructions: str) -> str:
                         await page.wait_for_timeout(1000)
                         log.append(f"clicked {selector}")
                     except Exception as e:
-                        log.append(f"click failed ({selector}): {e}")
+                        log.append(f"click failed ({selector}): {type(e).__name__}")
+                        # Try clicking by visible text as fallback
+                        try:
+                            await page.get_by_text(selector, exact=False).first.click(timeout=3000)
+                            await page.wait_for_timeout(1000)
+                            log.append(f"clicked by text '{selector}' (fallback)")
+                        except Exception:
+                            pass
 
                 elif first_line.upper().startswith("FILL:"):
                     parts = first_line[5:].split("|", 1)
@@ -441,9 +451,15 @@ async def browse_web(url: str, instructions: str) -> str:
                     try:
                         await page.locator(selector).first.fill(text, timeout=5000)
                         await page.wait_for_timeout(500)
-                        log.append(f"filled {selector} with '{text}'")
+                        log.append(f"filled {selector}")
                     except Exception as e:
-                        log.append(f"fill failed ({selector}): {e}")
+                        log.append(f"fill failed ({selector}): {type(e).__name__}")
+                        # Try pressing Tab + type as fallback
+                        try:
+                            await page.keyboard.type(text)
+                            log.append(f"typed text via keyboard (fallback)")
+                        except Exception:
+                            pass
 
                 elif first_line.upper().startswith("NAVIGATE:"):
                     nav_url = first_line[9:].strip()
@@ -452,7 +468,15 @@ async def browse_web(url: str, instructions: str) -> str:
                         await page.wait_for_timeout(1500)
                         log.append(f"navigated to {nav_url}")
                     except Exception as e:
-                        log.append(f"navigate failed: {e}")
+                        err = type(e).__name__
+                        log.append(f"navigate failed ({err}): {nav_url}")
+                        # Try with networkidle fallback
+                        try:
+                            await page.goto(nav_url, wait_until="load", timeout=20000)
+                            await page.wait_for_timeout(1000)
+                            log.append("navigated with load fallback")
+                        except Exception:
+                            pass
 
                 elif first_line.upper().startswith("SCROLL:"):
                     direction = first_line[7:].strip().lower()
