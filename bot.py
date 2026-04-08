@@ -559,9 +559,9 @@ async def transcribe_voice(file) -> str:
 
 conversation_history = {}
 
-async def send_news_digest(context):
+async def send_news_digest(context, chat_id=None):
     """6:30 по израильскому времени: дайджест новостей Израиля и мира."""
-    chat_id = OWNER_CHAT_ID
+    chat_id = chat_id or OWNER_CHAT_ID
     if not chat_id:
         print("OWNER_CHAT_ID не задан, дайджест новостей пропущен.")
         return
@@ -592,9 +592,9 @@ async def send_news_digest(context):
         print(f"News digest error: {e}")
 
 
-async def send_calendar_digest(context):
+async def send_calendar_digest(context, chat_id=None):
     """8:00 по израильскому времени: события дня + задачи + напоминания."""
-    chat_id = OWNER_CHAT_ID
+    chat_id = chat_id or OWNER_CHAT_ID
     if not chat_id:
         print("OWNER_CHAT_ID не задан, дайджест календаря пропущен.")
         return
@@ -664,6 +664,14 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     conversation_history[user_id] = []
     await update.message.reply_text("История очищена!")
+
+async def cmd_newsdigest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Загружаю новости...")
+    await send_news_digest(context, chat_id=update.effective_chat.id)
+
+async def cmd_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Формирую дайджест дня...")
+    await send_calendar_digest(context, chat_id=update.effective_chat.id)
 
 async def process_text(user_id: int, user_text: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in conversation_history:
@@ -812,6 +820,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("newsdigest", cmd_newsdigest))
+    app.add_handler(CommandHandler("digest", cmd_digest))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.job_queue.run_repeating(check_reminders, interval=60, first=10)
