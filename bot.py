@@ -11,6 +11,7 @@ from openai import OpenAI
 from tavily import TavilyClient
 from email.mime.text import MIMEText
 from telegram import Update
+from telegram.error import Conflict, NetworkError
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
@@ -888,8 +889,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
 
+async def error_handler(update, context):
+    err = context.error
+    if isinstance(err, Conflict):
+        print(f"[CONFLICT] Другой экземпляр бота уже запущен — остановите его: {err}")
+    elif isinstance(err, NetworkError):
+        print(f"[NETWORK] Сетевая ошибка, повтор автоматически: {err}")
+    else:
+        print(f"[ERROR] {type(err).__name__}: {err}")
+
+
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("myid", myid))
@@ -897,19 +909,26 @@ def main():
     app.add_handler(CommandHandler("digest", cmd_digest))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.job_queue.run_repeating(check_reminders, interval=60, first=10)
-    # Утренний дайджест новостей — 6:30 по израильскому времени
-    app.job_queue.run_daily(
-        send_news_digest,
-        time=datetime.time(6, 30, tzinfo=IL_TZ),
-    )
-    # Дайджест календаря и задач — 8:00 по израильскому времени
-    app.job_queue.run_daily(
-        send_calendar_digest,
-        time=datetime.time(8, 0, tzinfo=IL_TZ),
-    )
+    app.add_error_handler(error_handler)
+
+    if app.job_queue is not None:
+        app.job_queue.run_repeating(check_reminders, interval=60, first=10)
+        app.job_queue.run_daily(
+            send_news_digest,
+            time=datetime.time(6, 30, tzinfo=IL_TZ),
+        )
+        app.job_queue.run_daily(
+            send_calendar_digest,
+            time=datetime.time(8, 0, tzinfo=IL_TZ),
+        )
+    else:
+        print("[WARN] job_queue недоступен — установите python-telegram-bot[job-queue]")
+
     print("Бот запущен!")
-    app.run_polling()
+    # drop_pending_updates=True сбрасывает накопившиеся апдейты и вытесняет
+    # любой другой polling-сеанс, устраняя ошибку "terminated by other getUpdates request"
+    app.run_polling(drop_pending_updates=True)
+
 
 if __name__ == "__main__":
     main()
