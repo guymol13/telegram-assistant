@@ -5,7 +5,7 @@ import base64
 import pickle
 import tempfile
 import asyncio
-from zoneinfo import ZoneInfo
+import pytz
 from anthropic import Anthropic
 from openai import OpenAI
 from tavily import TavilyClient
@@ -372,7 +372,7 @@ TOOLS = [
 TASKS_FILE = os.path.join(os.path.dirname(__file__), "tasks.json")
 REMINDERS_FILE = os.path.join(os.path.dirname(__file__), "reminders.json")
 MSK = datetime.timezone(datetime.timedelta(hours=3))
-IL_TZ = ZoneInfo("Asia/Jerusalem")
+IL_TZ = pytz.timezone("Asia/Jerusalem")
 
 def load_tasks() -> list:
     if os.path.exists(TASKS_FILE):
@@ -616,8 +616,9 @@ async def send_news_digest(context, chat_id=None):
     """6:30 по израильскому времени: дайджест новостей Израиля и мира."""
     chat_id = chat_id or OWNER_CHAT_ID
     if not chat_id:
-        print("OWNER_CHAT_ID не задан, дайджест новостей пропущен.")
+        print("[DIGEST] OWNER_CHAT_ID не задан — добавьте в .env и перезапустите бота.")
         return
+    print(f"[DIGEST] Отправляю новостной дайджест → chat_id={chat_id}")
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         israel_news = search_web("latest news Israel today הידיעות האחרונות בישראל")
@@ -649,8 +650,9 @@ async def send_calendar_digest(context, chat_id=None):
     """8:00 по израильскому времени: события дня + задачи + напоминания."""
     chat_id = chat_id or OWNER_CHAT_ID
     if not chat_id:
-        print("OWNER_CHAT_ID не задан, дайджест календаря пропущен.")
+        print("[DIGEST] OWNER_CHAT_ID не задан — добавьте в .env и перезапустите бота.")
         return
+    print(f"[DIGEST] Отправляю дайджест календаря → chat_id={chat_id}")
     try:
         today = datetime.datetime.now(IL_TZ).strftime("%d.%m.%Y")
         lines = [f"📅 *План на {today}*\n"]
