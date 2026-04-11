@@ -5,6 +5,7 @@ import base64
 import pickle
 import tempfile
 import asyncio
+import time
 import pytz
 from anthropic import Anthropic
 from openai import OpenAI
@@ -930,6 +931,7 @@ def main():
 print(f"[DIGEST] Джобы зарегистрированы. Текущее время IL: {datetime.datetime.now(IL_TZ).strftime('%H:%M:%S')}")
     # drop_pending_updates=True сбрасывает накопившиеся апдейты и вытесняет
     # любой другой polling-сеанс, устраняя ошибку "terminated by other getUpdates request"
+    time.sleep(5)
     app.run_polling(drop_pending_updates=True)
 
 
