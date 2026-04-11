@@ -927,8 +927,8 @@ def main():
     else:
         print("[WARN] job_queue недоступен — установите python-telegram-bot[job-queue]")
 
-   print("Бот запущен!")
-print(f"[DIGEST] Джобы зарегистрированы. Текущее время IL: {datetime.datetime.now(IL_TZ).strftime('%H:%M:%S')}")
+    print("Бот запущен!")
+    print(f"[DIGEST] Джобы зарегистрированы. Текущее время IL: {datetime.datetime.now(IL_TZ).strftime('%H:%M:%S')}")
     # drop_pending_updates=True сбрасывает накопившиеся апдейты и вытесняет
     # любой другой polling-сеанс, устраняя ошибку "terminated by other getUpdates request"
     time.sleep(5)
